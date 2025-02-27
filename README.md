@@ -13,7 +13,7 @@ Harkonnen is a comprehensive, educational antivirus system designed for security
 - **Dynamic API monitoring**: Detects suspicious API calls during runtime
 - **Neural network detection**: Uses machine learning to identify previously unknown malware
 
-### New Features (v2.5.0)
+### New Features (v1.0.0)
 - **YARA rule support**: Custom pattern-based malware detection system
 - **Multi-threaded scanning**: Parallel processing for significantly faster scans
 - **Malware isolation**: Ability to safely remove detected threats from the system
@@ -63,7 +63,7 @@ Harkonnen employs a modular design with the following components:
    - Confidence scoring
    - Continuous learning capability
 
-### New Components in v2.5.0
+### V1.0.0 Components
 
 6. **YARA Rule Engine**
    - Custom pattern-based detection
@@ -234,7 +234,7 @@ Save custom rules as `.yar` files in the `rules/` directory, and they'll be auto
 
 ## 📊 Multi-threaded Scanning
 
-Harkonnen v2.5.0 introduces parallel scanning capabilities to dramatically improve performance on multi-core systems:
+Harkonnen v1.0.0 introduces parallel scanning capabilities to dramatically improve performance on multi-core systems:
 
 1. **Automatic thread allocation** based on available CPU cores
 2. **Workload distribution** across threads for optimal performance
