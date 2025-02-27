@@ -1,0 +1,68 @@
+# Windows Makefile for Harkonnen Antivirus
+# Can be used with NMAKE (Visual Studio) or MinGW32
+
+# Detect if we're using MinGW
+!if defined(MINGW) || [where mingw32-make > NUL 2>&1] == 0
+MINGW=1
+CC=gcc
+LDFLAGS=/link
+!else
+# Visual Studio defaults
+CC=cl
+CFLAGS=/nologo /W4 /EHsc /DWIN32 /D_WINDOWS /DUSE_WINDOWS
+LDFLAGS=/link
+!endif
+
+# Source files
+SRCS=main.c wingetopt.c
+
+# Target
+TARGET=harkonnen.exe
+
+# Optional libraries
+!ifdef USE_CURL
+CFLAGS=$(CFLAGS) /DUSE_CURL
+LIBS=$(LIBS) libcurl.lib
+!endif
+
+!ifdef USE_CJSON
+CFLAGS=$(CFLAGS) /DUSE_CJSON
+LIBS=$(LIBS) cjson.lib
+!endif
+
+# Rules
+all: $(TARGET)
+
+!ifdef MINGW
+# MinGW build
+$(TARGET): $(SRCS)
+	$(CC) -o $(TARGET) $(SRCS) -Wall -Wextra -I. -lm $(LIBS)
+
+clean:
+	del /Q $(TARGET) *.o
+!else
+# Visual Studio build
+$(TARGET): $(SRCS)
+	$(CC) $(CFLAGS) $(SRCS) /Fe$(TARGET) $(LDFLAGS) $(LIBS)
+
+clean:
+	del /Q $(TARGET) *.obj
+!endif
+
+# GUI target
+gui:
+	python harkonnen_gui.py
+
+# Run target
+run: $(TARGET)
+	$(TARGET) $(ARGS)
+
+# Scan targets
+sandbox-test: $(TARGET)
+	$(TARGET) -b -m -n $(ARGS)
+	
+nn-test: $(TARGET)
+	$(TARGET) -n $(ARGS)
+
+deep-scan: $(TARGET)
+	$(TARGET) -d -b -m -n -k $(ARGS)
