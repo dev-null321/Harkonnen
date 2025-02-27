@@ -1,6 +1,5 @@
 # Harkonnen Antivirus System
 
-![Harkonnen Logo](https://github.com/dev-null321/Harkonnen/blob/main/logo.png)
 
 Harkonnen is a comprehensive, educational antivirus system designed for security research and learning. This project showcases various security techniques including signature-based detection, heuristic analysis, behavioral monitoring, and machine learning approaches to malware identification.
 
