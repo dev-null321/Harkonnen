@@ -1,339 +1,162 @@
-# Harkonnen Antivirus System
+# Harkonnen Advanced Malware Detection (Beta 0.1)
 
+## ⚠️ EXPERIMENTAL SOFTWARE - BETA VERSION 0.1 ⚠️
 
-Harkonnen is a comprehensive, educational antivirus system designed for security research and learning. This project showcases various security techniques including signature-based detection, heuristic analysis, behavioral monitoring, and machine learning approaches to malware identification.
+**IMPORTANT NOTICE**: This software is in early beta stage (v0.1) and is provided for **EXPERIMENTAL AND EDUCATIONAL PURPOSES ONLY**. It should not be relied upon as your primary or sole antimalware solution. False positives and false negatives may occur.
 
-## 🔍 Key Features
+Harkonnen Advanced Malware Detection combines ResNet-based deep learning with advanced file analysis to identify potentially malicious files across all major platforms.
 
-### Core Detection Capabilities
-- **Signature-based detection**: Compares file hashes against a database of known malicious signatures
-- **Heuristic analysis**: Identifies suspicious patterns and behaviors in executable files
-- **Entropy analysis**: Detects potentially packed or obfuscated malware using statistical analysis
-- **PE file analysis**: Special handling and structure examination for Windows Portable Executable files
-- **Dynamic API monitoring**: Detects suspicious API calls during runtime
-- **Neural network detection**: Uses machine learning to identify previously unknown malware
+## Features
 
-### New Features (v1.0.0)
-- **YARA rule support**: Custom pattern-based malware detection system
-- **Multi-threaded scanning**: Parallel processing for significantly faster scans
-- **Malware isolation**: Ability to safely remove detected threats from the system
-- **HTML & text reporting**: Detailed scan reports with threat visualization
-- **Threat intelligence**: Queries Malware Bazaar for real-time threat information
-- **Malware information database**: Provides concise descriptions of detected threats
-- **Automatic signature updates**: Adds newly identified threats to local database for future scans
+- **Advanced ResNet Neural Network**: Uses ResNet-18 architecture trained on malware samples
+- **Confidence-Based Classification**: Three-tier classification system:
+  - High confidence malware (≥80% confidence)
+  - Undetermined files (20-80% confidence)
+  - Benign files (≤20% confidence)
+- **Cross-platform GUI Interface**: Works on Windows, macOS, and Linux
+- **File Management**: Quarantine or remove detected threats
+- **Detailed File Analysis**: Provides comprehensive information about detected threats
+- **Dark-themed Interface**: Sleek dark pink and blue theme inspired by House Harkonnen
 
-### User Interface Options
-- **Command-line interface**: Full-featured scanner with multiple detection options
-- **Text-based UI**: Interactive terminal interface for streamlined operation
-- **Graphical UI**: Cross-platform GUI with visualization capabilities
-- **macOS App Bundle**: Native macOS application experience
-
-## 🛠️ Technical Architecture
-
-Harkonnen employs a modular design with the following components:
-
-### Core Components
-1. **Static Analysis Engine**
-   - Hash calculation and lookup
-   - File format verification
-   - Entropy analysis
-   - String extraction and pattern matching
-   
-2. **Heuristic Engine**
-   - Code flow analysis
-   - API call patterns
-   - Suspicious instruction sequences
-   - Common malware techniques detection
-   
-3. **PE Parser**
-   - Header and section analysis
-   - Import/export table examination
-   - Resource analysis
-   - Anomaly detection
-   
-4. **Sandbox Environment**
-   - API call monitoring
-   - File system access tracking
-   - Network activity analysis
-   - System modification detection
-   
-5. **Neural Network**
-   - Feature extraction from binaries
-   - Pattern recognition for zero-day threats
-   - Confidence scoring
-   - Continuous learning capability
-
-### V1.0.0 Components
-
-6. **YARA Rule Engine**
-   - Custom pattern-based detection
-   - Rule management system
-   - Severity classification
-   - Metadata extraction
-
-7. **Parallel Processing Framework**
-   - Multi-threaded file scanning
-   - Worker thread pool
-   - Optimal CPU core utilization
-   - Thread-safe result collection
-
-8. **Reporting System**
-   - HTML report generation with visualizations
-   - Text-based report generation
-   - Threat statistics and summaries
-   - Browser integration
-
-9. **Dynamic Signature Management**
-   - Online updates from Malware Bazaar
-   - Local signature database
-   - Import/export functionality
-   - Automatic updates
-
-## 🔧 Building from Source
+## Installation
 
 ### Prerequisites
 
-- **Core Requirements**:
-  - C compiler (gcc/clang)
-  - Python 3.6+ with Tkinter (for GUI)
-  - make
+- Python 3.8 or newer
+- pip (Python package manager)
+- PyTorch compatible system
 
-- **Optional Components**:
-  - libcurl (for online threat intelligence)
-  - cJSON (for JSON parsing)
-  - pthreads (for multi-threading support)
-  - PyTorch (for neural network functionality)
-  - seccomp (on Linux for sandboxing)
+### Using Virtual Environment (Recommended)
 
-### Platform-Specific Requirements
-
-#### macOS
-- Xcode Command Line Tools
-- Python 3 (preferably via Homebrew)
-
-#### Linux
-- Build essentials package
-- Python3-tk package
-- Development headers for curl and json-c
-
-#### Windows
-- MinGW or Visual Studio Build Tools
-- Python with Tkinter (standard installation)
-- Windows SDK (if using Visual Studio)
-
-### Build Instructions
+We strongly recommend using a virtual environment to isolate dependencies:
 
 ```bash
-# Clone the repository
-git clone https://github.com/dev-null321/Harkonnen.git
-cd Harkonnen
+# Create virtual environment
+python3 -m venv harkonnen_env
 
-# Build the command-line version
-make
+# Activate environment (Windows)
+harkonnen_env\Scripts\activate
+
+# Activate environment (macOS/Linux)
+source harkonnen_env/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
 ```
 
-## 🚀 Usage Guide
+### Installation Steps
 
-### Command Line Interface
+1. **Clone or download this repository**
+   ```
+   git clone https://github.com/yourusername/Harkonnen.git
+   cd Harkonnen
+   ```
 
-```
-Usage: ./harkonnen [OPTIONS] <filename or directory>
+2. **Create and activate the virtual environment** (see above)
 
-Scanning Options:
-  -h, --help                 Display this help message
-  -v, --version              Display version information
-  -s, --scan                 Scan files without additional actions
-  -q, --quick                Quick scan (hash check only)
-  -d, --deep                 Deep scan (includes heuristics and PE analysis)
-  -b, --sandbox              Run suspicious files in sandbox
-  -m, --monitor              Enable API monitoring
-  -n, --neural               Use neural network for additional detection
-  -k, --kill                 Terminate malicious processes automatically
-  -o, --output=FILE          Write results to FILE
+3. **Install dependencies**:
+   ```
+   pip install -r requirements.txt
+   ```
 
-Signature Management:
-  -u, --update               Update signature database from Malware Bazaar
-  -i, --import=FILE          Import signatures from a local file
+4. **Download model files** 
+   
+   Make sure you have `best_model.pth` or `latest_model.pth` in the root directory.
 
-Performance Options:
-  -t, --threads=NUM          Use specified number of threads for scanning
-  -p, --parallel             Enable multi-threaded scanning (auto-configure)
+5. **Run the application**:
+   
+   ```
+   # Windows
+   python harkonnen_gui.py
+   
+   # macOS/Linux
+   python3 harkonnen_gui.py
+   ```
+   
+   Or use the provided launch scripts:
+   
+   ```
+   # Windows
+   run_harkonnen_gui.bat
+   
+   # macOS/Linux (make executable first)
+   chmod +x run_harkonnen_gui.sh
+   ./run_harkonnen_gui.sh
+   ```
 
-YARA Rules:
-  -y, --yara                 Enable YARA rule scanning
-  -Y, --yara-rules=DIR       Specify YARA rules directory
-  -L, --list-rules           List all loaded YARA rules
+## Usage
 
-Reporting:
-  -r, --report=FORMAT        Generate scan report (text, html, or both)
-  -O, --open-report          Open report in browser when scan completes
-```
+### Basic Usage
 
-### Common Usage Examples
+1. **Launch the application** using the appropriate method for your platform.
 
-#### Basic scan of a file:
-```bash
-./harkonnen suspicious_file.exe
-```
+2. **Select a model** by clicking the "Browse" button next to "Model File (.pth)". 
+   Use the provided `best_model.pth` or `latest_model.pth`.
 
-#### Deep scan with neural network analysis:
-```bash
-./harkonnen -d -n malware_sample.exe
-```
+3. **Select a target** by clicking the "Browse" button next to "Scan Location". 
+   You can scan either a single file or an entire directory.
 
-#### Parallel scan with YARA rules:
-```bash
-./harkonnen -p -y large_directory
-```
+4. **Start the scan** by clicking the "Start Scan" button.
 
-#### Generate HTML report for a scan:
-```bash
-./harkonnen -d -r html -O suspicious_files/
-```
+5. **View and analyze results** in the tabbed interface.
 
-#### Update signature database:
-```bash
-./harkonnen -u
-```
+6. **Take action** on detected threats using the "Remove" or "Quarantine" buttons.
 
-#### List loaded YARA rules:
-```bash
-./harkonnen -L
-```
+### Understanding Results
 
-## 🛡️ YARA Rule Support
+The system uses a three-tier classification approach:
 
-YARA rules provide powerful pattern-based detection capabilities. Harkonnen includes a built-in YARA rule engine that can:
+1. **Malware (Red, ≥80% confidence)**
+   - Files with high confidence of being malicious
+   - Recommended action: Remove or quarantine immediately
 
-1. **Load custom rules** from a designated directory (default: `./rules/`)
-2. **Apply rules** to scanned files for pattern matching
-3. **Classify threats** based on rule metadata (severity, tags, etc.)
-4. **Provide context** about detected patterns
+2. **Undetermined (Orange/Yellow, 20-80% confidence)**
+   - Files with moderate likelihood of being malicious
+   - Recommended action: Further analysis, quarantine if suspicious
 
-### Creating Custom YARA Rules
+3. **Benign (Green, ≤20% confidence)**
+   - Files with low likelihood of being malicious
+   - Recommended action: No action needed
 
-YARA rules use a simple syntax to define patterns. Here's an example:
+### Important Notes
 
-```
-rule Suspicious_PowerShell {
-    meta:
-        description = "Detects obfuscated PowerShell scripts"
-        severity = "medium"
-        tags = "powershell,obfuscation"
-    strings:
-        $s1 = "FromBase64String" nocase
-        $s2 = "Invoke-Expression" nocase
-        $s3 = "IEX" nocase
-        $s4 = "-enc" nocase
-    condition:
-        2 of them
-}
-```
+- **False Positives**: Some benign files may be incorrectly flagged. Always use caution before removing files.
+- **False Negatives**: Some malware may not be detected. This tool should supplement, not replace, other security measures.
+- **Performance**: Scanning large directories may take time; GPU acceleration is recommended for faster processing.
+- **This is Beta Software**: Expect occasional bugs and imperfect detection rates.
 
-Save custom rules as `.yar` files in the `rules/` directory, and they'll be automatically loaded when using the `-y` option.
+## Files Included
 
-## 📊 Multi-threaded Scanning
+- **Core Files**:
+  - `harkonnen_gui.py` - Main graphical user interface
+  - `resnet_inference.py` - ResNet neural network inference engine
+  - `best_model.pth` - Pre-trained PyTorch model
+  - `requirements.txt` - Python dependencies
+  
+- **Launch Scripts**:
+  - `run_harkonnen_gui.sh` - Launch script for macOS/Linux
+  - `run_harkonnen_gui.bat` - Launch script for Windows
 
-Harkonnen v1.0.0 introduces parallel scanning capabilities to dramatically improve performance on multi-core systems:
+## System Requirements
 
-1. **Automatic thread allocation** based on available CPU cores
-2. **Workload distribution** across threads for optimal performance
-3. **Thread-safe result collection** and reporting
-4. **Progress tracking** during scanning
+- Windows 10/11, macOS 10.15+, or Linux (modern distribution)
+- Python 3.8 or newer
+- 4GB RAM (8GB recommended for large scans)
+- CUDA-capable GPU recommended for faster scanning
 
-Enable parallel scanning with:
-```bash
-./harkonnen -p directory_to_scan
-```
+## Limitations
 
-Or specify the exact number of threads:
-```bash
-./harkonnen -t 8 directory_to_scan
-```
+- The model is still in early beta (v0.1) and detection accuracy will improve in future versions
+- Large files may take significant time to process
+- Not all types of malware can be detected using this approach
+- This tool focuses on file-based malware and cannot detect network-based threats
 
-## 📋 Reporting System
+## License
 
-### HTML Reports
+This project is provided for educational and research purposes only. See the LICENSE file for details.
 
-HTML reports provide rich visualizations and detailed information about scan results:
+## Acknowledgments
 
-- **Threat summary** with statistics and charts
-- **File details** for all scanned items
-- **Detection information** including threat names, descriptions, and severity
-- **System information** including hardware, OS, and scan configuration
-
-Generate an HTML report:
-```bash
-./harkonnen -r html -O directory_to_scan
-```
-
-The `-O` flag automatically opens the report in your default browser.
-
-### Text Reports
-
-Text reports provide a concise summary in plain text format:
-
-- **Scan overview**
-- **Detection details**
-- **System information**
-
-Generate a text report:
-```bash
-./harkonnen -r text directory_to_scan
-```
-
-Or generate both formats:
-```bash
-./harkonnen -r both directory_to_scan
-```
-
-## 🔄 Signature Management
-
-### Online Updates
-
-Harkonnen can automatically update its signature database from Malware Bazaar:
-
-```bash
-./harkonnen -u
-```
-
-This fetches the latest malware signatures and adds them to the local database.
-
-### Custom Signatures
-
-You can import custom signatures from a file:
-
-```bash
-./harkonnen -i my_signatures.txt
-```
-
-The signature format is simple:
-```
-SHA256_HASH:Malware_Name
-```
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-### Development Guidelines
-- Follow the existing code style
-- Add tests for new functionality
-- Update documentation to reflect changes
-- Ensure cross-platform compatibility where possible
-
-## 📜 License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## ⚠️ Disclaimer
-
-This software is provided for educational and research purposes only. It is not intended for production use or to provide complete protection against all types of malware. The authors are not responsible for any damage that may occur from using this software or from the misuse of information contained within.
-
-Harkonnen should never be used to analyze malware on production systems or critical infrastructure. Always use isolated, sandboxed environments for malware analysis.
+- PyTorch for neural network capabilities
+- ResNet architecture for image classification
+- Python's tkinter for cross-platform GUI
