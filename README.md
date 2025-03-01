@@ -1,4 +1,4 @@
-# Harkonnen Advanced Malware Detection System
+x# Harkonnen Advanced Malware Detection System
 
 ## 🛡️ Complete Malware Defense with Neural Network Analysis
 
@@ -100,7 +100,6 @@ pip install -r requirements.txt
 #### 4. Download Model Files
 
 Ensure you have the neural network model files in the root directory:
-- `best_model.pth` - Primary model with highest accuracy
 - `latest_model.pth` - Most recent model (may include newer detections)
 
 #### 5. Compile Core Engine (if building from source)
@@ -194,8 +193,8 @@ You can also use the Harkonnen neural network scanner as a Python module in your
 from resnet_inference import scan_file, load_model, get_device
 
 # Initialize the model
-device = get_device()  # Gets best available device (CUDA, MPS, or CPU)
-model = load_model("best_model.pth", device)
+device = get_device()  # Gets latest available device (CUDA, MPS, or CPU)
+model = load_model("latest_model.pth", device)
 
 # Scan a file
 is_malware, confidence, status = scan_file("suspicious_file.exe", model, device)
@@ -212,7 +211,7 @@ else:
 
 ### Signature Database Updates
 
-Keep your signature database up to date for the best detection rates:
+Keep your signature database up to date for the latest detection rates:
 
 ```bash
 # Using the command-line tool
@@ -227,7 +226,7 @@ Keep your signature database up to date for the best detection rates:
 Newer model versions may be available periodically with improved detection capabilities:
 
 1. Download the latest model file from the repository
-2. Replace your existing `best_model.pth` or use as `latest_model.pth`
+2. Replace your existing `latest_model.pth` or use as `latest_model.pth`
 3. Select the new model in the GUI or specify with `-m` on the command line
 
 ## 🔧 Advanced Configuration
@@ -265,7 +264,7 @@ To enable GPU acceleration for neural network scanning:
 ### Common Issues
 
 1. **"Model file not found" error**:
-   - Ensure `best_model.pth` is in the root directory
+   - Ensure `latest_model.pth` is in the root directory
    - Check file path contains no special characters
 
 2. **Slow scanning performance**:
