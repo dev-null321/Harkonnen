@@ -100,7 +100,7 @@ pip install -r requirements.txt
 #### 4. Download Model Files
 
 Ensure you have the neural network model files in the root directory:
-- `latest_model.pth` - Most recent model (may include newer detections: Note the model is 135MB, so it was uploaded to zenodo. https://zenodo.org/records/14949024?token=eyJhbGciOiJIUzUxMiJ9.eyJpZCI6IjY4NDAxOTVhLTE0MTEtNGI3MS1hMmZkLThjMjRmNDNmOTFhNyIsImRhdGEiOnt9LCJyYW5kb20iOiI3OGYyNGExZjU2MDc0YzQ1ZmE4ZjdjMTNiODJkODAwYiJ9.U7b2FJpId9cngrtrb86V902UwnlDVfGl292wfCe0wBU88CfIuD-089LERDLD-ta-oBAh6hNLMSnORlJA5XVfDw)
+- `latest_model.pth` - Most recent model (may include newer detections: Note the model is 135MB, so it was uploaded to zenodo. [latest_model](https://zenodo.org/records/14949024?token=eyJhbGciOiJIUzUxMiJ9.eyJpZCI6IjY4NDAxOTVhLTE0MTEtNGI3MS1hMmZkLThjMjRmNDNmOTFhNyIsImRhdGEiOnt9LCJyYW5kb20iOiI3OGYyNGExZjU2MDc0YzQ1ZmE4ZjdjMTNiODJkODAwYiJ9.U7b2FJpId9cngrtrb86V902UwnlDVfGl292wfCe0wBU88CfIuD-089LERDLD-ta-oBAh6hNLMSnORlJA5XVfDw)
 
 #### 5. Compile Core Engine (if building from source)
 
