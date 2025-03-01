@@ -138,12 +138,13 @@ nmake -f Makefile.win
    ```
 
 2. **Using the GUI**:
+   -FIRST PLEASE NOTE ONLY THE ANTIMALWRE NEURAL NETWORK RUNS IN THE GUI
    - Select the model file by clicking "Browse" next to "Model File (.pth)"
    - Choose a file or directory to scan with "Browse" next to "Scan Location"
    - Toggle options like "Deep Scan" as needed
    - Click "Start Scan" to begin
 
-3. **Understanding Results**:
+4. **Understanding Results**:
    - **Malware (Red, ≥80% confidence)**: High probability of being malicious
    - **Undetermined (Orange, 20-80% confidence)**: May be malicious, requires review
    - **Benign (Green, ≤20% confidence)**: Low probability of being malicious
