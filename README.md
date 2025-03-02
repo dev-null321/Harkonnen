@@ -1,5 +1,3 @@
-x# Harkonnen Advanced Malware Detection System
-
 ## 🛡️ Complete Malware Defense with Neural Network Analysis
 
 **Version: 0.1 - Beta**
