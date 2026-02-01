@@ -1,0 +1,5 @@
+harkonnen
+*.o
+harkonnen_signatures.txt
+reports/
+rules/

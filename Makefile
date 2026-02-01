@@ -41,7 +41,7 @@ endif
 
 SRCS = main.c
 OBJS = $(SRCS:.c=.o)
-HEADERS = static-analysis.h heuristics.h api_shadowing.h pe_parser.h
+HEADERS = static-analysis.h heuristics.h api_shadowing.h pe_parser.h mach_o_parser.h elf_parser.h
 
 TARGET = harkonnen
 

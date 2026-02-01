@@ -34,6 +34,10 @@ typedef struct {
 static YaraRule loaded_rules[RULES_LOADED_LIMIT];
 static int rule_count = 0;
 
+// Forward declarations
+static int load_yara_rule(const char *rule_path, YaraRule *rule);
+static void create_example_rules(void);
+
 // Initialize YARA system
 int initialize_yara() {
     DIR *dir;
@@ -84,7 +88,7 @@ int initialize_yara() {
 }
 
 // Load a single YARA rule file
-int load_yara_rule(const char *rule_path, YaraRule *rule) {
+static int load_yara_rule(const char *rule_path, YaraRule *rule) {
     FILE *file = fopen(rule_path, "r");
     if (file == NULL) {
         printf("[YARA ERROR] Failed to open rule file: %s\n", rule_path);
@@ -178,7 +182,7 @@ int load_yara_rule(const char *rule_path, YaraRule *rule) {
 }
 
 // Create example YARA rules
-void create_example_rules() {
+static void create_example_rules(void) {
     // Example rule 1: Generic PowerShell obfuscation
     const char *rule1 = 
         "rule PowerShell_Obfuscation {\n"

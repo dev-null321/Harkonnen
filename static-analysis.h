@@ -1,7 +1,9 @@
+#ifndef STATIC_ANALYSIS_H
+#define STATIC_ANALYSIS_H
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -11,8 +13,21 @@
 #include <dirent.h>
 #include <ctype.h>
 #include <time.h>
+#include <stdbool.h>
+
+#ifdef _WIN32
+#include <windows.h>
+#include <tlhelp32.h>
+#include <psapi.h>
+#include <io.h>
+#else
+#include <unistd.h>
+#include <signal.h>
 #include <libgen.h>
+#endif
+
 #include "hashes.h"
+
 #ifdef USE_CURL
 #include <curl/curl.h>
 #endif
@@ -24,14 +39,22 @@
 // Including local header with quotation marks instead of angle brackets
 #include "pe_parser.h"
 
-#ifdef _WIN32
-#include <windows.h>
-#include <tlhelp32.h>
-#include <psapi.h>
-#else
-#include <sys/syscall.h>
-#include <signal.h>
-#include <unistd.h>
+// Portable memmem for systems that lack it (e.g., macOS without _GNU_SOURCE)
+#ifndef _GNU_SOURCE
+static void *harkonnen_memmem(const void *haystack, size_t haystacklen,
+                               const void *needle, size_t needlelen) {
+    if (needlelen == 0) return (void *)haystack;
+    if (haystacklen < needlelen) return NULL;
+    const unsigned char *h = (const unsigned char *)haystack;
+    const unsigned char *n = (const unsigned char *)needle;
+    for (size_t i = 0; i <= haystacklen - needlelen; i++) {
+        if (memcmp(h + i, n, needlelen) == 0) {
+            return (void *)(h + i);
+        }
+    }
+    return NULL;
+}
+#define memmem harkonnen_memmem
 #endif
 
 #define BUFFER_SIZE 256
@@ -45,11 +68,14 @@ struct MemoryStruct {
 
 // Function declarations
 void process_path(const char *path);
+void process_path_collect(const char *path, char ***malicious_files, int *malicious_count, int *total_files);
 void analyze_file(const char *filename);
 void calculate_file_hashes(const char *filename, char *md5_result, char *sha256_result, size_t result_size);
 bool check_hash_in_database(const char *hash, const char *filename, int *threat_level, const char **threat_name);
 void search_hash_in_hash_list(const char *hash, const char *filename);
+#if defined(USE_CURL) && defined(USE_CJSON)
 static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp);
+#endif
 bool query_malware_bazaar(const char *hash);
 int terminate_malicious_process(const char *filePath);
 double calculate_file_entropy(const char* filename);
@@ -162,7 +188,7 @@ void process_path(const char *path) {
                 
                 // Simple file analysis for directory scan (avoid full output)
                 char md5[BUFFER_SIZE], sha256[BUFFER_SIZE];
-                int is_threat = 0;
+                int is_threat __attribute__((unused)) = 0;
                 
                 calculate_file_hashes(full_path, md5, sha256, BUFFER_SIZE);
                 
@@ -275,11 +301,12 @@ void analyze_file(const char *filename) {
         threat_level = 1; // suspicious
     }
 
-    // Check if it's a PE file, and if so, analyze it
+    // Auto-detect binary format and analyze
     if (is_pe_file(filename)) {
         printf("[INFO] PE file detected, performing detailed analysis...\n");
         parse_pe_file(filename);
     }
+    // Note: Mach-O and ELF parsers are called from main.c during deep scan
 
     // Check for known malicious hashes - this will set threat_level = 2 if found
     if (check_hash_in_database(sha256, filename, &threat_level, &threat_name)) {
@@ -305,41 +332,41 @@ void analyze_file(const char *filename) {
     printf("----------------------------------------\n");
     printf("VERDICT: ");
     
-    switch (threat_level) {
-        case 0:
-            printf("\033[32mCLEAN\033[0m - No threats detected\n");
-            break;
-        case 1:
-            printf("\033[33mSUSPICIOUS\033[0m - Potentially unwanted behavior detected\n");
-            
-            // Ask user if they want to remove the suspicious file
-            char response[10];
-            printf("[QUESTION] This file appears suspicious. Do you want to remove it? (y/n): ");
-            if (fgets(response, sizeof(response), stdin) != NULL) {
-                if (response[0] == 'y' || response[0] == 'Y') {
-                    remove_malicious_file(filename);
-                } else {
-                    printf("[WARNING] Suspicious file was kept on the system!\n");
+    {
+        char response[10];
+        switch (threat_level) {
+            case 0:
+                printf("\033[32mCLEAN\033[0m - No threats detected\n");
+                break;
+            case 1:
+                printf("\033[33mSUSPICIOUS\033[0m - Potentially unwanted behavior detected\n");
+                
+                printf("[QUESTION] This file appears suspicious. Do you want to remove it? (y/n): ");
+                if (fgets(response, sizeof(response), stdin) != NULL) {
+                    if (response[0] == 'y' || response[0] == 'Y') {
+                        remove_malicious_file(filename);
+                    } else {
+                        printf("[WARNING] Suspicious file was kept on the system!\n");
+                    }
                 }
-            }
-            break;
-        case 2:
-            printf("\033[31mMALICIOUS\033[0m - Threat detected");
-            if (threat_name) {
-                printf(": %s", threat_name);
-            }
-            printf("\n");
-            
-            // Ask user if they want to remove the malicious file
-            printf("[QUESTION] Do you want to remove this malicious file? (y/n): ");
-            if (fgets(response, sizeof(response), stdin) != NULL) {
-                if (response[0] == 'y' || response[0] == 'Y') {
-                    remove_malicious_file(filename);
-                } else {
-                    printf("[WARNING] Malicious file was kept on the system!\n");
+                break;
+            case 2:
+                printf("\033[31mMALICIOUS\033[0m - Threat detected");
+                if (threat_name) {
+                    printf(": %s", threat_name);
                 }
-            }
-            break;
+                printf("\n");
+                
+                printf("[QUESTION] Do you want to remove this malicious file? (y/n): ");
+                if (fgets(response, sizeof(response), stdin) != NULL) {
+                    if (response[0] == 'y' || response[0] == 'Y') {
+                        remove_malicious_file(filename);
+                    } else {
+                        printf("[WARNING] Malicious file was kept on the system!\n");
+                    }
+                }
+                break;
+        }
     }
     printf("----------------------------------------\n");
 }
@@ -424,6 +451,7 @@ void search_hash_in_hash_list(const char *hash, const char *filename) {
     check_hash_in_database(hash, filename, &threat_level, &threat_name);
 }
 
+#if defined(USE_CURL) && defined(USE_CJSON)
 static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp) {
     size_t realsize = size * nmemb;
     struct MemoryStruct *mem = (struct MemoryStruct *)userp;
@@ -441,8 +469,9 @@ static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, voi
 
     return realsize;
 }
+#endif /* USE_CURL && USE_CJSON */
 
-bool query_malware_bazaar(const char *hash) {
+bool query_malware_bazaar(const char *hash __attribute__((unused))) {
 #if defined(USE_CURL) && defined(USE_CJSON)
     printf("[INFO] Querying Malware Bazaar for threat intelligence...\n");
     
@@ -619,43 +648,34 @@ int terminate_malicious_process(const char *filePath) {
     return -1;
     #else
     // Unix-specific code
-    char path[PATH_MAX];
-    
     #ifdef __linux__
-    // Linux-specific: get process path from /proc filesystem
-    if (realpath("/proc/self/exe", path) == NULL) {
-        perror("Error getting executable path");
-        return -1;
-    }
-    #elif defined(__APPLE__)
-    // macOS doesn't have /proc filesystem
-    // Use alternate method like _NSGetExecutablePath()
-    // For now, just compare process name
-    char *process_name = basename((char *)filePath);
-    if (getpid() == 0) {
-        printf("Cannot determine current process\n");
-        return -1;
-    }
-    #else
-    // Other Unix systems
-    printf("Process termination not fully implemented for this system\n");
-    return -1;
-    #endif
-    
-    #ifdef __linux__
-    if (strcmp(path, filePath) == 0) {
-        if (kill(getpid(), SIGKILL) == 0) {
-            printf("Process killed!\n");
-            return 0;
-        } else {
-            perror("Error killing process");
+    {
+        char proc_path[PATH_MAX];
+        if (realpath("/proc/self/exe", proc_path) == NULL) {
+            perror("Error getting executable path");
             return -1;
+        }
+        if (strcmp(proc_path, filePath) == 0) {
+            if (kill(getpid(), SIGKILL) == 0) {
+                printf("Process killed!\n");
+                return 0;
+            } else {
+                perror("Error killing process");
+                return -1;
+            }
         }
     }
     #elif defined(__APPLE__)
-    // Just report it rather than actually killing for safety
-    printf("Would terminate process: %s (simulation)\n", process_name);
-    return 0;
+    {
+        // macOS: just report rather than actually killing for safety
+        char *process_name = basename((char *)filePath);
+        printf("Would terminate process: %s (simulation)\n", process_name);
+        return 0;
+    }
+    #else
+    (void)filePath;
+    printf("Process termination not fully implemented for this system\n");
+    return -1;
     #endif
     
     return -1;
@@ -829,3 +849,91 @@ bool check_for_suspicious_patterns(const char* filename) {
     
     return suspicious;
 }
+
+// ============================================================
+// process_path_collect - scan files/directories and collect
+// malicious file paths for batch removal
+// ============================================================
+#define MAX_MALICIOUS_FILES_COLLECT 1000
+
+static void _collect_file(const char *filepath, char ***malicious_files, int *malicious_count, int *total_files) {
+    (*total_files)++;
+    
+    char md5_buf[BUFFER_SIZE], sha256_buf[BUFFER_SIZE];
+    calculate_file_hashes(filepath, md5_buf, sha256_buf, BUFFER_SIZE);
+    
+    int threat_level = 0;
+    const char *threat_name = NULL;
+    
+    // Check entropy
+    double entropy = calculate_file_entropy(filepath);
+    if (entropy > 7.0) {
+        threat_level = 1;
+    }
+    
+    // Check hash database
+    if (check_hash_in_database(sha256_buf, filepath, &threat_level, &threat_name)) {
+        if (threat_name) {
+            display_malware_info(threat_name);
+        }
+    }
+    
+    // Check suspicious patterns
+    if (check_for_suspicious_patterns(filepath) && threat_level < 2) {
+        threat_level = 1;
+    }
+    
+    if (threat_level >= 2 && *malicious_count < MAX_MALICIOUS_FILES_COLLECT) {
+        (*malicious_files)[*malicious_count] = strdup(filepath);
+        (*malicious_count)++;
+        printf("\033[1;31m[MALICIOUS]\033[0m %s", filepath);
+        if (threat_name) printf(" (%s)", threat_name);
+        printf("\n");
+    } else if (threat_level == 1) {
+        printf("\033[1;33m[SUSPICIOUS]\033[0m %s\n", filepath);
+    } else {
+        printf("\033[1;32m[CLEAN]\033[0m %s\n", filepath);
+    }
+}
+
+void process_path_collect(const char *path, char ***malicious_files, int *malicious_count, int *total_files) {
+    struct stat path_stat;
+    if (stat(path, &path_stat) != 0) {
+        printf("[ERROR] Failed to access: %s\n", path);
+        perror("Reason");
+        return;
+    }
+    
+    if (S_ISREG(path_stat.st_mode)) {
+        _collect_file(path, malicious_files, malicious_count, total_files);
+    } else if (S_ISDIR(path_stat.st_mode)) {
+        DIR *dir = opendir(path);
+        if (dir == NULL) {
+            printf("[ERROR] Failed to open directory: %s\n", path);
+            return;
+        }
+        
+        struct dirent *entry;
+        while ((entry = readdir(dir)) != NULL) {
+            if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+                continue;
+            }
+            
+            char full_path[PATH_MAX];
+            snprintf(full_path, sizeof(full_path), "%s/%s", path, entry->d_name);
+            
+            struct stat entry_stat;
+            if (stat(full_path, &entry_stat) != 0) continue;
+            
+            if (S_ISDIR(entry_stat.st_mode)) {
+                process_path_collect(full_path, malicious_files, malicious_count, total_files);
+            } else if (S_ISREG(entry_stat.st_mode)) {
+                _collect_file(full_path, malicious_files, malicious_count, total_files);
+            }
+        }
+        
+        closedir(dir);
+    }
+}
+
+#endif /* STATIC_ANALYSIS_H */
