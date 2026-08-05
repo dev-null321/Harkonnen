@@ -254,6 +254,7 @@ void wait_for_scan_completion() {
 
 // Worker thread function
 void *scanner_worker(void *arg) {
+    (void)arg;
     while (1) {
         char filepath[MAX_PATH_LENGTH];
         int dequeued = 0;

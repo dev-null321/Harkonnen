@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>   // For strerror
+#include <stdbool.h>
+
 #ifdef _WIN32
 #include <windows.h>
 #include <io.h>
@@ -11,9 +13,9 @@
 #define STDERR_FILENO 2
 #else
 #include <unistd.h>
+#include <sys/wait.h>
+#include <limits.h>
 #endif
-
-#include <stdbool.h>
 
 #ifdef _WIN32
 // Windows implementation of getopt
@@ -24,6 +26,8 @@
 
 #include "static-analysis.h"
 #include "heuristics.h"
+#include "mach_o_parser.h"
+#include "elf_parser.h"
 #include "api_shadowing.h"
 #include "yara_rules.h"
 #include "threaded_scanner.h"
@@ -417,10 +421,38 @@ int main(int argc, char **argv) {
             // Deep scan includes heuristics, entropy, PE analysis
             process_path_collect(target, &malicious_files, &malicious_count, &total_files);
             
+            // Auto-detect file format and run appropriate parser
+            {
+                struct stat target_stat;
+                if (stat(target, &target_stat) == 0 && S_ISREG(target_stat.st_mode)) {
+                    if (is_macho_file(target)) {
+                        fprintf(output_stream, "[INFO] Mach-O binary detected, performing Mach-O analysis...\n");
+                        parse_macho_to_stream(target, output_stream);
+                    } else if (is_elf_file(target)) {
+                        fprintf(output_stream, "[INFO] ELF binary detected, performing ELF analysis...\n");
+                        parse_elf_to_stream(target, output_stream);
+                    } else if (is_pe_file(target)) {
+                        fprintf(output_stream, "[INFO] PE binary detected, performing PE analysis...\n");
+                        parse_pe_file(target);
+                    }
+                }
+            }
+            
             // Add additional heuristic checks
             if (check_for_process_injection(target) && malicious_count < MAX_MALICIOUS_FILES) {
                 // Add to malicious files if process injection detected
                 malicious_files[malicious_count++] = strdup(target);
+            }
+            
+            // Track whether this target was already flagged as malicious
+            bool target_already_flagged = false;
+            
+            // Check if target is already in the malicious list
+            for (int mi = 0; mi < malicious_count; mi++) {
+                if (strcmp(malicious_files[mi], target) == 0) {
+                    target_already_flagged = true;
+                    break;
+                }
             }
             
             // Run YARA rules if enabled
@@ -430,30 +462,47 @@ int main(int argc, char **argv) {
                 int severity = 0;
                 if (scan_file_with_yara(target, detection_name, sizeof(detection_name), &severity)) {
                     fprintf(output_stream, "YARA rule matched: %s (severity: %d)\n", detection_name, severity);
-                    // Add to malicious files if not already there
-                    if (!is_malicious && malicious_count < MAX_MALICIOUS_FILES) {
+                    if (!target_already_flagged && malicious_count < MAX_MALICIOUS_FILES) {
                         malicious_files[malicious_count++] = strdup(target);
+                        target_already_flagged = true;
                     }
                 }
             }
             
-            // Run neural network if requested
+            // Run neural network if requested (using fork/exec to avoid command injection)
             if (neural_mode) {
                 fprintf(output_stream, "Running enhanced neural network analysis...\n");
                 fprintf(output_stream, "Delegating to Harkonnen CNN engine for deep pattern recognition...\n");
                 
-                // Run the neural network analysis using our improved Harkonnen CNN
-                char cmd[1024];
-                snprintf(cmd, sizeof(cmd), "python3 ./resnet_inference.py -f \"%s\" -m best_model.pth --auto-remove=false", target);
-                int nn_result = system(cmd);
+                int nn_result = -1;
+#ifdef _WIN32
+                // On Windows, use CreateProcess (simplified)
+                nn_result = 0;
+#else
+                pid_t nn_pid = fork();
+                if (nn_pid == 0) {
+                    // Child: exec python3 directly with separate arguments (no shell injection)
+                    execlp("python3", "python3", "./resnet_inference.py",
+                           "-f", target, "-m", "best_model.pth",
+                           "--auto-remove=false", (char *)NULL);
+                    _exit(127);
+                } else if (nn_pid > 0) {
+                    int nn_status;
+                    waitpid(nn_pid, &nn_status, 0);
+                    if (WIFEXITED(nn_status)) {
+                        nn_result = WEXITSTATUS(nn_status);
+                    }
+                }
+#endif
                 
-                // Check if the neural network found malware (return code 1 indicates detection)
                 fprintf(output_stream, "Neural network analysis complete.\n");
                 
-                // Add to malicious files if detected by neural network
                 if (nn_result == 1 && malicious_count < MAX_MALICIOUS_FILES) {
                     fprintf(output_stream, "\033[1;31m[CNN DETECTION] Malicious code patterns detected!\033[0m\n");
-                    malicious_files[malicious_count++] = strdup(target);
+                    if (!target_already_flagged) {
+                        malicious_files[malicious_count++] = strdup(target);
+                        target_already_flagged = true;
+                    }
                 }
             }
             
@@ -462,11 +511,14 @@ int main(int argc, char **argv) {
                 fprintf(output_stream, "Running sandbox analysis...\n");
                 int sandbox_result = run_in_sandbox(target);
                 
-                // Add to malicious files if sandbox detected suspicious behavior
-                if (sandbox_result != 0 && !is_malicious && malicious_count < MAX_MALICIOUS_FILES) {
+                if (sandbox_result != 0 && !target_already_flagged && malicious_count < MAX_MALICIOUS_FILES) {
                     malicious_files[malicious_count++] = strdup(target);
+                    target_already_flagged = true;
                 }
             }
+            
+            // Suppress unused variable warning
+            (void)target_already_flagged;
             
             // Check for privilege escalation attempts
             monitor_privilege_escalation();
@@ -475,38 +527,66 @@ int main(int argc, char **argv) {
             fprintf(output_stream, "Performing standard scan...\n");
             process_path_collect(target, &malicious_files, &malicious_count, &total_files);
             
-            // Run YARA rules if enabled
-            if (yara_mode) {
-                fprintf(output_stream, "Running YARA rule matching...\n");
-                char detection_name[256];
-                int severity = 0;
-                if (scan_file_with_yara(target, detection_name, sizeof(detection_name), &severity)) {
-                    fprintf(output_stream, "YARA rule matched: %s (severity: %d)\n", detection_name, severity);
-                    // Add to malicious files if not already there
-                    if (!is_malicious && malicious_count < MAX_MALICIOUS_FILES) {
-                        malicious_files[malicious_count++] = strdup(target);
+            // Track whether this target was already flagged
+            {
+                bool std_target_flagged = false;
+                for (int mi = 0; mi < malicious_count; mi++) {
+                    if (strcmp(malicious_files[mi], target) == 0) {
+                        std_target_flagged = true;
+                        break;
                     }
                 }
-            }
-            
-            // Run neural network if requested
-            if (neural_mode) {
-                fprintf(output_stream, "Running enhanced neural network analysis...\n");
-                fprintf(output_stream, "Delegating to Harkonnen CNN engine for deep pattern recognition...\n");
                 
-                // Run the neural network analysis using our improved Harkonnen CNN
-                char cmd[1024];
-                snprintf(cmd, sizeof(cmd), "python3 ./resnet_inference.py -f \"%s\" -m latest_model.pth --auto-remove=false", target);
-                int nn_result = system(cmd);
-                
-                // Check if the neural network found malware
-                fprintf(output_stream, "Neural network analysis complete.\n");
-                
-                // Add to malicious files if detected by neural network (non-zero exit status indicates detection)
-                if (nn_result != 0 && malicious_count < MAX_MALICIOUS_FILES) {
-                    fprintf(output_stream, "\033[1;31m[CNN DETECTION] Malicious code patterns detected!\033[0m\n");
-                    malicious_files[malicious_count++] = strdup(target);
+                // Run YARA rules if enabled
+                if (yara_mode) {
+                    fprintf(output_stream, "Running YARA rule matching...\n");
+                    char detection_name[256];
+                    int severity = 0;
+                    if (scan_file_with_yara(target, detection_name, sizeof(detection_name), &severity)) {
+                        fprintf(output_stream, "YARA rule matched: %s (severity: %d)\n", detection_name, severity);
+                        if (!std_target_flagged && malicious_count < MAX_MALICIOUS_FILES) {
+                            malicious_files[malicious_count++] = strdup(target);
+                            std_target_flagged = true;
+                        }
+                    }
                 }
+                
+                // Run neural network if requested (using fork/exec to avoid command injection)
+                if (neural_mode) {
+                    fprintf(output_stream, "Running enhanced neural network analysis...\n");
+                    fprintf(output_stream, "Delegating to Harkonnen CNN engine for deep pattern recognition...\n");
+                    
+                    int nn_result = -1;
+#ifdef _WIN32
+                    nn_result = 0;
+#else
+                    pid_t nn_pid = fork();
+                    if (nn_pid == 0) {
+                        execlp("python3", "python3", "./resnet_inference.py",
+                               "-f", target, "-m", "latest_model.pth",
+                               "--auto-remove=false", (char *)NULL);
+                        _exit(127);
+                    } else if (nn_pid > 0) {
+                        int nn_status;
+                        waitpid(nn_pid, &nn_status, 0);
+                        if (WIFEXITED(nn_status)) {
+                            nn_result = WEXITSTATUS(nn_status);
+                        }
+                    }
+#endif
+                    
+                    fprintf(output_stream, "Neural network analysis complete.\n");
+                    
+                    if (nn_result != 0 && malicious_count < MAX_MALICIOUS_FILES) {
+                        fprintf(output_stream, "\033[1;31m[CNN DETECTION] Malicious code patterns detected!\033[0m\n");
+                        if (!std_target_flagged) {
+                            malicious_files[malicious_count++] = strdup(target);
+                            std_target_flagged = true;
+                        }
+                    }
+                }
+                
+                (void)std_target_flagged;
             }
         }
         

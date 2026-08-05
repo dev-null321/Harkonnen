@@ -8,16 +8,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <limits.h>
 #include <time.h>
+#include <stdbool.h>
+#include <dirent.h>
 
 #ifndef _WIN32
-// For nanosleep
+#include <unistd.h>
 #include <time.h>
 #endif
 
@@ -26,21 +27,22 @@
 #include <tlhelp32.h>
 #include <psapi.h>
 #else
-#include <sys/syscall.h>
 #include <signal.h>
-#include <unistd.h>
 #include <sys/wait.h>
 #endif
 
 #ifdef __linux__
+#ifdef USE_SECCOMP
 #include <seccomp.h>
-#elif defined(__APPLE__)
-#include <sandbox.h>
+#endif
 #endif
 
 // Forward declarations
 void monitor_process_resources(pid_t pid);
-#endif
+int run_in_sandbox(const char *filepath);
+void sandbox_process(const char *target_process);
+
+#endif /* HEURISTICS_H */
 
 
 int check_for_process_injection(const char *filePath) {
@@ -96,7 +98,7 @@ int check_for_process_injection(const char *filePath) {
     CloseHandle(hProcessSnap);
     #else
     // For Unix-like systems, we'd need to implement a different approach
-    // This could involve parsing /proc/<pid>/maps or using ptrace
+    (void)filePath;
     printf("Process injection check not implemented for this platform.\n");
     #endif
 
@@ -144,7 +146,7 @@ void analyze_process(const char *filePath) {
     pid_t pid = fork();
     if (pid == 0) {
         execl(filePath, filePath, (char *)NULL);
-        exit(1);
+        _exit(1);
     } else if (pid > 0) {
         int status;
         waitpid(pid, &status, 0);
@@ -157,11 +159,9 @@ void analyze_process(const char *filePath) {
     check_for_process_injection(filePath);
 }
 
-// This function is already defined in static-analysis.h
-// Use the one from there instead
-
 void sandbox_process(const char* target_process) {
 #ifdef __linux__
+#ifdef USE_SECCOMP
     // Use seccomp to restrict system calls
     scmp_filter_ctx ctx;
     ctx = seccomp_init(SCMP_ACT_ALLOW);
@@ -170,7 +170,6 @@ void sandbox_process(const char* target_process) {
         exit(1);
     }
 
-    // Add rules to block dangerous system calls
     seccomp_rule_add(ctx, SCMP_ACT_KILL, SCMP_SYS(execve), 0);
     seccomp_rule_add(ctx, SCMP_ACT_KILL, SCMP_SYS(fork), 0);
     seccomp_rule_add(ctx, SCMP_ACT_KILL, SCMP_SYS(vfork), 0);
@@ -181,8 +180,6 @@ void sandbox_process(const char* target_process) {
     seccomp_rule_add(ctx, SCMP_ACT_KILL, SCMP_SYS(delete_module), 0);
     seccomp_rule_add(ctx, SCMP_ACT_KILL, SCMP_SYS(init_module), 0);
     seccomp_rule_add(ctx, SCMP_ACT_KILL, SCMP_SYS(finit_module), 0);
-
-    // Network restrictions
     seccomp_rule_add(ctx, SCMP_ACT_KILL, SCMP_SYS(socket), 0);
     seccomp_rule_add(ctx, SCMP_ACT_KILL, SCMP_SYS(bind), 0);
     seccomp_rule_add(ctx, SCMP_ACT_KILL, SCMP_SYS(connect), 0);
@@ -198,49 +195,39 @@ void sandbox_process(const char* target_process) {
 
     seccomp_release(ctx);
     printf("Linux sandbox (seccomp) initialized with enhanced protections\n");
+#else
+    printf("Seccomp not available - using simulated sandbox on Linux\n");
+    (void)target_process;
+#endif /* USE_SECCOMP */
 
 #elif defined(_WIN32)
-    // Create job object for Windows sandbox
     HANDLE hJob = CreateJobObject(NULL, NULL);
     if (hJob == NULL) {
         fprintf(stderr, "Failed to create job object\n");
         exit(1);
     }
 
-    // Configure job object limits
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION jeli = {0};
-    
-    // Process termination upon job handle close
     jeli.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-    
-    // Prevent process from creating child processes
     jeli.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_ACTIVE_PROCESS;
     jeli.BasicLimitInformation.ActiveProcessLimit = 1;
-    
-    // Prevent process from escaping the job
     jeli.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_BREAKAWAY_OK;
-    
-    // Set memory limits
     jeli.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_JOB_MEMORY;
-    jeli.JobMemoryLimit = 100 * 1024 * 1024; // 100 MB limit
-    
-    // Set process time limits
+    jeli.JobMemoryLimit = 100 * 1024 * 1024;
     jeli.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_JOB_TIME;
-    jeli.BasicLimitInformation.PerJobUserTimeLimit.QuadPart = 10000000; // 1 second (in 100ns units)
+    jeli.BasicLimitInformation.PerJobUserTimeLimit.QuadPart = 10000000;
     
     SetInformationJobObject(hJob, JobObjectExtendedLimitInformation, &jeli, sizeof(jeli));
     
-    // Setup UI restrictions
     JOBOBJECT_BASIC_UI_RESTRICTIONS juiRestrictions;
     juiRestrictions.UIRestrictionsClass = JOB_OBJECT_UILIMIT_NONE;
-    juiRestrictions.UIRestrictionsClass |= JOB_OBJECT_UILIMIT_EXITWINDOWS; // Prevent logging off
-    juiRestrictions.UIRestrictionsClass |= JOB_OBJECT_UILIMIT_SYSTEMPARAMETERS; // Prevent system parameter changes
-    juiRestrictions.UIRestrictionsClass |= JOB_OBJECT_UILIMIT_DESKTOP; // Prevent desktop changes
-    juiRestrictions.UIRestrictionsClass |= JOB_OBJECT_UILIMIT_DISPLAYSETTINGS; // Prevent display changes
+    juiRestrictions.UIRestrictionsClass |= JOB_OBJECT_UILIMIT_EXITWINDOWS;
+    juiRestrictions.UIRestrictionsClass |= JOB_OBJECT_UILIMIT_SYSTEMPARAMETERS;
+    juiRestrictions.UIRestrictionsClass |= JOB_OBJECT_UILIMIT_DESKTOP;
+    juiRestrictions.UIRestrictionsClass |= JOB_OBJECT_UILIMIT_DISPLAYSETTINGS;
     
     SetInformationJobObject(hJob, JobObjectBasicUIRestrictions, &juiRestrictions, sizeof(juiRestrictions));
     
-    // Launch the target process in the sandbox
     STARTUPINFO si = {0};
     PROCESS_INFORMATION pi = {0};
     si.cb = sizeof(si);
@@ -249,7 +236,6 @@ void sandbox_process(const char* target_process) {
     
     if (CreateProcess(target_process, NULL, NULL, NULL, FALSE, 
                       CREATE_SUSPENDED | CREATE_NEW_CONSOLE, NULL, NULL, &si, &pi)) {
-        // Assign process to job before it starts executing
         if (!AssignProcessToJobObject(hJob, pi.hProcess)) {
             fprintf(stderr, "Failed to assign process to job object: %lu\n", GetLastError());
             TerminateProcess(pi.hProcess, 1);
@@ -259,14 +245,10 @@ void sandbox_process(const char* target_process) {
             return;
         }
         
-        // Resume the process now that it's sandboxed
         ResumeThread(pi.hThread);
-        
-        // Wait for the process to complete
         printf("Waiting for sandboxed process to complete...\n");
-        WaitForSingleObject(pi.hProcess, 30000); // Wait up to 30 seconds
+        WaitForSingleObject(pi.hProcess, 30000);
         
-        // Clean up
         CloseHandle(pi.hProcess);
         CloseHandle(pi.hThread);
         printf("Sandboxed process completed\n");
@@ -279,8 +261,7 @@ void sandbox_process(const char* target_process) {
 
 #elif defined(__APPLE__)
 #ifdef USE_SANDBOX
-    // macOS sandbox implementation using sandbox_init
-    char sandbox_error[512];
+    char *sandbox_error = NULL;
     const char *sandbox_profile = 
         "(version 1)\n"
         "(deny default)\n"
@@ -293,20 +274,18 @@ void sandbox_process(const char* target_process) {
     int sandbox_result = sandbox_init(sandbox_profile, 0, &sandbox_error);
     if (sandbox_result != 0) {
         fprintf(stderr, "sandbox_init failed: %s\n", sandbox_error);
+        sandbox_free_error(sandbox_error);
         exit(1);
     }
     
     printf("macOS sandbox initialized with custom profile\n");
     
-    // Launch the target process in the sandbox
     pid_t child_pid = fork();
     if (child_pid == 0) {
-        // Child process
         execl(target_process, target_process, NULL);
         perror("execl failed");
-        exit(1);
+        _exit(1);
     } else if (child_pid > 0) {
-        // Parent process
         int status;
         printf("Waiting for sandboxed process (PID: %d) to complete...\n", child_pid);
         waitpid(child_pid, &status, 0);
@@ -315,57 +294,42 @@ void sandbox_process(const char* target_process) {
         perror("fork failed");
     }
 #else
-    // Simpler macOS implementation without sandbox_init
     printf("Full sandbox not available - using simulated sandbox on macOS\n");
     
-    // Create a temporary directory for containing the sandbox
     char temp_sandbox_dir[PATH_MAX];
     snprintf(temp_sandbox_dir, sizeof(temp_sandbox_dir), "/tmp/harkonnen_sandbox_%d", (int)time(NULL));
     mkdir(temp_sandbox_dir, 0700);
     
     printf("Created temporary sandbox environment at %s\n", temp_sandbox_dir);
     
-    // Launch the process with restricted environment
     pid_t child_pid = fork();
     if (child_pid == 0) {
-        // Child process - set restricted environment
-        // Change to sandbox directory
         if (chdir(temp_sandbox_dir) != 0) {
             perror("Failed to change to sandbox directory");
-            exit(1);
+            _exit(1);
         }
         
-        // Set restrictive umask
         umask(077);
-        
-        // Clear environment variables that might be dangerous
         unsetenv("LD_PRELOAD");
         unsetenv("DYLD_INSERT_LIBRARIES");
         unsetenv("DYLD_LIBRARY_PATH");
-        
-        // Set restricted PATH
         setenv("PATH", "/usr/bin:/bin", 1);
         
-        // Execute the target
         execl(target_process, target_process, NULL);
         perror("execl failed");
-        exit(1);
+        _exit(1);
     } else if (child_pid > 0) {
-        // Parent process - monitor the child
         int status;
         printf("Simulated sandbox running process (PID: %d)\n", child_pid);
         
-        // Monitor the process resources while it's running
-        struct timespec ts = {1, 0}; // 1 second
+        struct timespec ts = {1, 0};
         while (waitpid(child_pid, &status, WNOHANG) == 0) {
-            // Check process resources
             monitor_process_resources(child_pid);
             nanosleep(&ts, NULL);
         }
         
         printf("Process completed with status: %d\n", WEXITSTATUS(status));
         
-        // Look for any files created in the sandbox
         printf("Checking sandbox for created files...\n");
         DIR *dir = opendir(temp_sandbox_dir);
         if (dir) {
@@ -386,8 +350,9 @@ void sandbox_process(const char* target_process) {
     } else {
         perror("fork failed");
     }
-#endif
+#endif /* USE_SANDBOX */
 #else
+    (void)target_process;
     printf("Sandbox not implemented for this platform\n");
 #endif
 }
@@ -396,14 +361,14 @@ void sandbox_process(const char* target_process) {
 void monitor_process_resources(pid_t pid) {
 #ifdef __linux__
     char path[256];
-    snprintf(path, sizeof(path), "/proc/%d/status", pid);
+    snprintf(path, sizeof(path), "/proc/%d/status", (int)pid);
     
-    FILE *status = fopen(path, "r");
-    if (status) {
+    FILE *status_file = fopen(path, "r");
+    if (status_file) {
         char line[256];
         unsigned long vm_size = 0, vm_rss = 0;
         
-        while (fgets(line, sizeof(line), status)) {
+        while (fgets(line, sizeof(line), status_file)) {
             if (strncmp(line, "VmSize:", 7) == 0) {
                 sscanf(line, "VmSize: %lu", &vm_size);
             } else if (strncmp(line, "VmRSS:", 6) == 0) {
@@ -411,36 +376,34 @@ void monitor_process_resources(pid_t pid) {
             }
         }
         
-        fclose(status);
+        fclose(status_file);
         
-        printf("Process %d resources:\n", pid);
+        printf("Process %d resources:\n", (int)pid);
         printf("  Virtual Memory: %lu KB\n", vm_size);
         printf("  Physical Memory: %lu KB\n", vm_rss);
         
-        // Check CPU usage
-        snprintf(path, sizeof(path), "/proc/%d/stat", pid);
-        FILE *stat = fopen(path, "r");
-        if (stat) {
+        snprintf(path, sizeof(path), "/proc/%d/stat", (int)pid);
+        FILE *stat_file = fopen(path, "r");
+        if (stat_file) {
             unsigned long utime, stime;
-            fscanf(stat, "%*d %*s %*c %*d %*d %*d %*d %*d %*u %*u %*u %*u %*u %lu %lu", &utime, &stime);
-            fclose(stat);
-            printf("  CPU Time: %lu ticks\n", utime + stime);
+            if (fscanf(stat_file, "%*d %*s %*c %*d %*d %*d %*d %*d %*u %*u %*u %*u %*u %lu %lu", &utime, &stime) == 2) {
+                printf("  CPU Time: %lu ticks\n", utime + stime);
+            }
+            fclose(stat_file);
         }
     } else {
         perror("Could not open process status");
     }
 #elif defined(_WIN32)
-    HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid);
+    HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, (DWORD)pid);
     if (hProcess) {
-        // Get memory info
         PROCESS_MEMORY_COUNTERS pmc;
         if (GetProcessMemoryInfo(hProcess, &pmc, sizeof(pmc))) {
-            printf("Process %lu resources:\n", pid);
-            printf("  Working Set Size: %llu KB\n", pmc.WorkingSetSize / 1024);
-            printf("  Page File Usage: %llu KB\n", pmc.PagefileUsage / 1024);
+            printf("Process %lu resources:\n", (unsigned long)pid);
+            printf("  Working Set Size: %llu KB\n", (unsigned long long)pmc.WorkingSetSize / 1024);
+            printf("  Page File Usage: %llu KB\n", (unsigned long long)pmc.PagefileUsage / 1024);
         }
         
-        // Get CPU time
         FILETIME ftCreation, ftExit, ftKernel, ftUser;
         if (GetProcessTimes(hProcess, &ftCreation, &ftExit, &ftKernel, &ftUser)) {
             ULARGE_INTEGER ulKernel, ulUser;
@@ -449,39 +412,40 @@ void monitor_process_resources(pid_t pid) {
             ulUser.LowPart = ftUser.dwLowDateTime;
             ulUser.HighPart = ftUser.dwHighDateTime;
             
-            printf("  CPU Time: %llu ms\n", (ulKernel.QuadPart + ulUser.QuadPart) / 10000);
+            printf("  CPU Time: %llu ms\n", (unsigned long long)(ulKernel.QuadPart + ulUser.QuadPart) / 10000);
         }
         
         CloseHandle(hProcess);
     } else {
-        fprintf(stderr, "Could not open process: %lu\n", GetLastError());
+        fprintf(stderr, "Could not open process: %lu\n", (unsigned long)GetLastError());
     }
 #elif defined(__APPLE__)
-    // macOS process monitoring (simplified)
     char command[256];
-    sprintf(command, "ps -o pid,%%cpu,%%mem,rss,vsz -p %d", pid);
+    snprintf(command, sizeof(command), "ps -o pid,%%cpu,%%mem,rss,vsz -p %d", (int)pid);
     
     FILE *proc = popen(command, "r");
     if (proc) {
         char buffer[256];
         // Skip header
-        fgets(buffer, sizeof(buffer), proc);
-        
         if (fgets(buffer, sizeof(buffer), proc)) {
-            printf("Process resources: %s", buffer);
+            if (fgets(buffer, sizeof(buffer), proc)) {
+                printf("Process resources: %s", buffer);
+            }
         }
-        
         pclose(proc);
     }
+#else
+    (void)pid;
 #endif
 }
 
 // Run a binary in a sandbox for behavioral analysis
-void run_in_sandbox(const char *filepath) {
+// Returns 0 if clean, non-zero if suspicious behavior detected
+int run_in_sandbox(const char *filepath) {
     printf("Starting sandbox analysis for: %s\n", filepath);
+    int suspicious = 0;
     
 #if defined(_WIN32) || defined(__linux__) || defined(__APPLE__)
-    // Create a temporary directory for sandbox artifacts
     char temp_dir[PATH_MAX];
     
 #ifdef _WIN32
@@ -496,19 +460,15 @@ void run_in_sandbox(const char *filepath) {
     
     printf("Sandbox environment prepared at: %s\n", temp_dir);
     
-    // Log the start of sandbox analysis
     time_t start_time = time(NULL);
     printf("Sandbox started at: %s", ctime(&start_time));
     
-    // Run the file in the sandbox
     sandbox_process(filepath);
     
-    // Log the end of sandbox analysis
     time_t end_time = time(NULL);
     printf("Sandbox completed at: %s", ctime(&end_time));
-    printf("Total analysis time: %ld seconds\n", end_time - start_time);
+    printf("Total analysis time: %ld seconds\n", (long)(end_time - start_time));
     
-    // Check for suspicious files created in the sandbox directory
     printf("Checking for artifacts...\n");
     
 #ifdef _WIN32
@@ -521,6 +481,7 @@ void run_in_sandbox(const char *filepath) {
         do {
             if (strcmp(find_data.cFileName, ".") != 0 && strcmp(find_data.cFileName, "..") != 0) {
                 printf("Found artifact: %s\n", find_data.cFileName);
+                suspicious = 1;
             }
         } while (FindNextFile(hFind, &find_data));
         FindClose(hFind);
@@ -532,6 +493,7 @@ void run_in_sandbox(const char *filepath) {
         while ((entry = readdir(dir)) != NULL) {
             if (strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0) {
                 printf("Found artifact: %s\n", entry->d_name);
+                suspicious = 1;
             }
         }
         closedir(dir);
@@ -540,55 +502,47 @@ void run_in_sandbox(const char *filepath) {
     
     printf("Sandbox analysis complete.\n");
 #else
+    (void)filepath;
     printf("Sandbox analysis not supported on this platform.\n");
 #endif
+    
+    return suspicious;
 }
 
 void analyze_with_neural_network(const char* filename) {
-    char command[1024];
     char cwd[PATH_MAX];
     
-    // Get current working directory for relative paths
     if (getcwd(cwd, sizeof(cwd)) == NULL) {
         perror("getcwd");
         return;
     }
 
-    // Call the BinSleuth wrapper script to run the neural network
-    snprintf(command, sizeof(command), 
-            "python3 %s/run_binsleuth.py \"%s\"", 
-            cwd, filename);
-
+    // Use fork/exec instead of system() to avoid command injection
     printf("Running neural network analysis with BinSleuth...\n");
-    FILE* pipe = popen(command, "r");
-    if (!pipe) {
-        perror("popen");
+    
+    pid_t pid = fork();
+    if (pid == 0) {
+        // Child process - exec python directly with separate args (no shell injection possible)
+        char script_path[PATH_MAX];
+        snprintf(script_path, sizeof(script_path), "%s/run_binsleuth.py", cwd);
+        execlp("python3", "python3", script_path, filename, (char *)NULL);
+        perror("execlp");
+        _exit(127);
+    } else if (pid < 0) {
+        perror("fork");
         return;
     }
-
-    char buffer[256];
-    bool is_malicious = false;
     
-    while (fgets(buffer, sizeof(buffer), pipe) != NULL) {
-        printf("%s", buffer);
-        
-        // Check for malicious verdict in the output
-        if (strstr(buffer, "Prediction: MALICIOUS")) {
-            is_malicious = true;
-        }
-    }
-
-    int result = pclose(pipe);
-    if (result == -1) {
-        perror("pclose");
-    } else {
-        // Process exit code indicates detection result
-        if (WEXITSTATUS(result) != 0) {
-            is_malicious = true;
-        }
+    int status;
+    waitpid(pid, &status, 0);
+    
+    bool is_malicious_nn = false;
+    
+    if (WIFEXITED(status) && WEXITSTATUS(status) != 0) {
+        is_malicious_nn = true;
     }
     
-    if (is_malicious) {
+    if (is_malicious_nn) {
         printf("\nWARNING: Neural network detected malicious behavior!\n");
         printf("Consider running this file in the sandbox for further analysis.\n");
     } else {
